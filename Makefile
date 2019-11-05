@@ -3,17 +3,23 @@ CFLAGS=-nodefaultlibs -nostdinc \
 	-fno-stack-clash-protection \
 	-fno-pie -fno-PIC \
 	-ftls-model=local-exec \
-	-Wall -O0 -ggdb3
+	-Wall -O2 -ggdb3
 
 LDFLAGS=
 
 TARGET=x64-tls-ldt-msr
 
-x64-lin-reg: ${TARGET}.o
+${TARGET}: ${TARGET}.o
 	ld -o ${LDFLAGS} ${TARGET} ${TARGET}.o 
 
-x64-lin-reg.o: ${TARGET}.c
+${TARGET}.o: ${TARGET}.c lib*.c
 	gcc -c ${CFLAGS} ${TARGET}.c
 
 clean:
-	rm -f ${TARGET} ${TARGET}.o ${TARGET}.s
+	rm -f ${TARGET} ${TARGET}.o ${TARGET}.s strace.log.*
+
+run: ${TARGET}
+	./${TARGET}
+
+trace: ${TARGET}
+	strace -o strace.log -ff ./${TARGET}
