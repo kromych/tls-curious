@@ -142,11 +142,24 @@ void access_tls()
     }
 }
 
+typedef struct _thread_context_t
+{
+    volatile i32    exited_futex __attribute__((aligned(4)));
+    u64             thread_num;
+} thread_context_t;
+
+__attribute__((noinline))
 void thread_0(void* param)
 {
-    print("Thread # "); print_h64(*(u64*)param); println();
+    thread_context_t* thread_context = (thread_context_t*)param;
+
+    print("Thread # "); print_h64(thread_context->thread_num); println();
 
     access_tls();
+
+    print("Thread # "); print_h64(thread_context->thread_num); print(" exited "); println();
+
+    futex_release(&thread_context->exited_futex);
 
     sys_exit(0);
 }
@@ -155,8 +168,21 @@ void thread_0(void* param)
 
 void _start()
 {
-    u64 thread_num = 1;
-    create_thread(thread_0, &thread_num);
+    /* futex == 0: State: unavailable */
+    /* futex == 1: State: available */
+
+    thread_context_t thread_context = {
+        .exited_futex = 0,
+        .thread_num = 1
+    };
+
+    print("Process started\n");
+
+    create_thread(thread_0, &thread_context);
+
+    futex_acquire(&thread_context.exited_futex);
+
+    print("Process exited\n");
 
     sys_exit(0);
 }

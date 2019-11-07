@@ -1,6 +1,8 @@
 #ifndef __LIB_H__
 #define __LIB_H__
 
+#define NULL              ((void*)0)
+
 #define THREAD_STACK_SIZE 2*1024*1024
 
 #define PROT_READ	0x1		/* page can be read */
@@ -25,7 +27,47 @@
 #define WCONTINUED	0x8	/* Report continued child.  */
 #define WNOWAIT	    0x01000000 /* Don't reap, just poll status.  */
 
+/* Basic futext operations, there are much more: man 2 futex */
+
+#define FUTEX_WAIT		0
+#define FUTEX_WAKE		1
+
 #define STDOUT_FD       0x1         /* Standard output */
+
+#define	EPERM		 1	/* Operation not permitted */
+#define	ENOENT		 2	/* No such file or directory */
+#define	ESRCH		 3	/* No such process */
+#define	EINTR		 4	/* Interrupted system call */
+#define	EIO		 5	/* I/O error */
+#define	ENXIO		 6	/* No such device or address */
+#define	E2BIG		 7	/* Argument list too long */
+#define	ENOEXEC		 8	/* Exec format error */
+#define	EBADF		 9	/* Bad file number */
+#define	ECHILD		10	/* No child processes */
+#define	EAGAIN		11	/* Try again */
+#define	ENOMEM		12	/* Out of memory */
+#define	EACCES		13	/* Permission denied */
+#define	EFAULT		14	/* Bad address */
+#define	ENOTBLK		15	/* Block device required */
+#define	EBUSY		16	/* Device or resource busy */
+#define	EEXIST		17	/* File exists */
+#define	EXDEV		18	/* Cross-device link */
+#define	ENODEV		19	/* No such device */
+#define	ENOTDIR		20	/* Not a directory */
+#define	EISDIR		21	/* Is a directory */
+#define	EINVAL		22	/* Invalid argument */
+#define	ENFILE		23	/* File table overflow */
+#define	EMFILE		24	/* Too many open files */
+#define	ENOTTY		25	/* Not a typewriter */
+#define	ETXTBSY		26	/* Text file busy */
+#define	EFBIG		27	/* File too large */
+#define	ENOSPC		28	/* No space left on device */
+#define	ESPIPE		29	/* Illegal seek */
+#define	EROFS		30	/* Read-only file system */
+#define	EMLINK		31	/* Too many links */
+#define	EPIPE		32	/* Broken pipe */
+#define	EDOM		33	/* Math argument out of domain of func */
+#define	ERANGE		34	/* Math result not representable */
 
 typedef unsigned char u8;
 typedef signed char i8;
@@ -45,7 +87,7 @@ typedef signed long long i64;
 /*
     Map virtual memory
 */
-u64 sys_mmap(void *addr, u64 length, u64 prot, u64 flags);
+u64 sys_mmap(void *addr, u64 length, u64 prot, u64 flags, i64 fd, u64 offset);
 
 /*
     Unmap virtual memory
@@ -61,6 +103,18 @@ u64 sys_clone(u64 flags, void *stack);
     Wait for a process to change status
 */
 u64 sys_waitpid(u64 pid, u64 *wstatus, u64 options);
+
+/*
+    Operations on futexes
+*/
+
+struct timespec
+{
+    u64 tv_sec;
+    u64 tv_nsec;
+};
+
+i64 sys_futex(volatile i32 *uaddr, i64 futex_op, i32 val, const struct timespec *timeout, i32 *uaddr2, i32 val3);
 
 /*
     System call to write data to file fd
@@ -156,6 +210,24 @@ u64 create_thread(thread_start_t thread_start, void* thread_param);
 */
 
 void fatal(char*msg, u64 err_code);
+
+/*
+    Futexes
+*/
+
+/* 
+    Acquire the futex pointed to by 'futexp': wait for its value to
+    become 1, and then set the value to 0. 
+*/
+void futex_acquire(volatile i32 *futexp);
+
+/* 
+    Release the futex pointed to by 'futexp': if the futex currently
+    has the value 0, set its value to 1 and the wake any futex waiters,
+    so that if the peer is blocked in fpost(), it can proceed. 
+*/
+void futex_release(volatile i32 *futexp);
+
 
 /* 
     String and I/O

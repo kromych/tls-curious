@@ -9,12 +9,13 @@
 #define SYS_wait4       61
 #define SYS_modifyldt   154
 #define SYS_getsetfsgs  158
+#define SYS_futex       202
 
 /************************ ROUTINES ********************************/
 
-u64 sys_mmap(void *addr, u64 length, u64 prot, u64 flags)
+u64 sys_mmap(void *addr, u64 length, u64 prot, u64 flags, i64 fd, u64 offset)
 {
-    return sys_call4(SYS_mmap, (u64)addr, (u64)length, (u64)prot, (u64)flags);
+    return sys_call6(SYS_mmap, (u64)addr, (u64)length, (u64)prot, (u64)flags, (u64)fd, (u64)offset);
 }
 
 u64 sys_munmap(void *addr, u64 length)
@@ -32,6 +33,11 @@ u64 sys_waitpid(u64 pid, u64 *wstatus, u64 options)
     u8 rusage[256];
 
     return sys_call4(SYS_wait4, (u64)pid, (u64)wstatus, (u64)options, (u64)rusage);
+}
+
+i64 sys_futex(volatile i32 *uaddr, i64 futex_op, i32 val, const struct timespec *timeout, i32 *uaddr2, i32 val3)
+{
+    return sys_call6(SYS_futex, (u64)uaddr, (u64)futex_op, (u64)val, (u64)timeout, (u64)uaddr2, (u64)val3);
 }
 
 i64 sys_write(u64 fd, const void *buf, u64 count)
@@ -171,6 +177,7 @@ void print_h64(u64 number)
 }
 
 __attribute__((naked))
+__attribute__((noinline))
 void thread_trampoline()
 {
     /* Load the argument into %rdi and jump to the thread function*/
@@ -180,14 +187,17 @@ void thread_trampoline()
     );
 }
 
+__attribute__((noinline))
 u64 create_thread(thread_start_t thread_start, void* thread_param)
 {
+    i64 err_code = 0;
+
     const u64 stack_size = THREAD_STACK_SIZE;
     const u64 flags = CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND |
                       CLONE_PARENT | CLONE_THREAD | CLONE_IO;
     
-    /* 0 -- no preferred address */
-    void* stack = (void*)sys_mmap(0, stack_size, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE | MAP_GROWSDOWN);
+    /* 0 -- no preferred address, no file to map, no offset */
+    void* stack = (void*)sys_mmap(0, stack_size, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE | MAP_GROWSDOWN, 0, 0);
     void *stack_top               = ((char*)stack) + stack_size;
     void *stack_thread_func_start = ((char*)stack_top) - 8;
     void *stack_param_loc         = ((char*)stack_top) - 16;
@@ -197,7 +207,25 @@ u64 create_thread(thread_start_t thread_start, void* thread_param)
     *(u64*)stack_param_loc          = (u64)thread_param;
     *(u64*)stack_thread_trampoline  = (u64)thread_trampoline;
 
-    return sys_clone(flags, ((char*)stack_top) - 32);
+    /* 
+        Need very precise control here as the compiler may insert instructions between
+        syscall and ret.
+
+        The new thread will have 0 in %eax, and by doing ret, will jump to the trampoline.
+    */
+
+    asm(
+        "syscall\n"
+        "orl    %%eax, %%eax\n"
+        "jnz    __1f\n"
+        "ret\n"
+        "__1f:\n"
+        : "=a"(err_code)
+        : "0"(SYS_clone), "D"(flags), "S"(stack_thread_trampoline)
+        : "memory", "cc", "r11", "rcx" /* Clobbered by the syscall */
+    );
+
+    return err_code;
 }
 
 void fatal(char*msg, u64 err_code)
@@ -298,4 +326,53 @@ u64 get_ldt_selector_ring3(u64 index)
    return (3ULL)        | /* Ring 3*/
           (1ULL << 2)   | /* Local Descriptor Table */
           (index << 3);
+}
+
+/*
+    Futexes
+*/
+
+/* 
+    Acquire the futex pointed to by 'futexp': wait for its value to
+    become 1, and then set the value to 0. 
+*/
+void futex_acquire(volatile i32 *futexp)
+{
+    for (;;)
+    {
+        /* Is the futex available, i.e *futexp == 1 ? */
+        if (__sync_bool_compare_and_swap(futexp, 1, 0))
+        {
+            /* Yes, it just was, and now it is acquired, i.e. set to 0  */
+            break;
+        }
+
+        /* Futex is not available; wait */
+
+        i64 s = sys_futex(futexp, FUTEX_WAIT, 0, NULL, NULL, 0);
+
+        if (s != -EAGAIN && s != 0)
+        {
+            fatal("futex_acquire", s);
+        }
+    }
+}
+
+/* 
+    Release the futex pointed to by 'futexp': if the futex currently
+    has the value 0, set its value to 1 and the wake any futex waiters,
+    so that if the peer is blocked in fpost(), it can proceed. 
+*/
+void futex_release(volatile i32 *futexp)
+{
+    if (__sync_bool_compare_and_swap(futexp, 0, 1)) 
+    {
+        /* Wake at most 1 waiter */
+        i64 s = sys_futex(futexp, FUTEX_WAKE, 1, NULL, NULL, 0);
+
+        if (s  < 0 && s >= -4095)
+        {
+            fatal("futex_release", 0);
+        }
+    }
 }
