@@ -242,6 +242,45 @@ void access_tls_x64()
     }
 }
 
+#elif defined(__aarch64__)
+
+/*
+    AArch64 Thread pointer registers:
+
+    Name          | Type       | Reset      | Width      | Description
+   ===================================================================================================
+    TPIDR_EL0     | RW         | UNK        | 64         | Thread Pointer/ID Register, EL0
+    TPIDR_EL1     | RW         | UNK        | 64         | Thread Pointer/ID Register, EL1
+    TPIDRRO_EL0   | RW         | UNK        | 64         | Thread Pointer/ID Register, Read-Only, EL0
+    TPIDR_EL2     | RW         | UNK        | 64         | Thread Pointer/ID Register, EL2
+    TPIDR_EL3     | RW         | UNK        | 64         | Thread Pointer/ID Register, EL3
+*/
+
+void access_tls_arm64()
+{
+    register u64 tls_start asm ("x0") = (u64)(((char*)tls_pages) + 4096);
+
+    asm volatile (
+        "msr tpidr_el0, x0"
+        :
+        : "r"(tls_start)
+        );
+
+    println();
+
+    print("Setting "); println();
+
+    thread_local_0 = 123456792;
+    thread_local_1 = 123456793;
+    thread_local_2 = 123456794;
+
+    print("thread_local_0: "); print_h64(thread_local_0); println();
+    print("thread_local_1: "); print_h64(thread_local_1); println();
+    print("thread_local_2: "); print_h64(thread_local_2); println();
+
+    find_values_in_tls();
+}
+
 #endif
 
 typedef struct _thread_context_t
@@ -259,6 +298,8 @@ void thread_0(void* param)
 
 #ifdef __amd64
     access_tls_x64();
+#elif defined(__aarch64__)
+    access_tls_arm64();
 #endif
 
     print("Thread # "); print_h64(thread_context->thread_num); print(" exited "); println();
