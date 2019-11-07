@@ -10,7 +10,7 @@ CC=gcc
 
 LD=ld
 
-TARGET=x64-tls-ldt-msr
+TARGET=tls-test
 
 ${TARGET}: ${TARGET}.o
 	${LD} -o ${LDFLAGS} ${TARGET} ${TARGET}.o 

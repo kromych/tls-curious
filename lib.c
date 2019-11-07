@@ -22,7 +22,7 @@
 #   define SYS_clone       220
 #   define SYS_exit        93
 #   define SYS_wait4       260
-#   define SYS_futex       89
+#   define SYS_futex       98
 
 #else
 #   error "Unsupported architecture"
@@ -155,23 +155,6 @@ void print_h64(u64 number)
     sys_write(STDOUT_FD, hex_str, sizeof(hex_str));
 }
 
-__attribute__((naked))
-__attribute__((noinline))
-void thread_trampoline()
-{
-#ifdef __amd64
-    /* Load the argument into %rdi and jump to the thread function*/
-    asm(
-        "popq %rdi\n"
-        "ret\n"
-    );
-#elif defined(__aarch64__)
-
-#else
-#   error "Unsupported architecture"
-#endif
-}
-
 __attribute__((noinline))
 u64 create_thread(thread_start_t thread_start, void* thread_param)
 {
@@ -186,18 +169,16 @@ u64 create_thread(thread_start_t thread_start, void* thread_param)
     void *stack_top               = ((char*)stack) + stack_size;
     void *stack_thread_func_start = ((char*)stack_top) - 8;
     void *stack_param_loc         = ((char*)stack_top) - 16;
-    void *stack_thread_trampoline = ((char*)stack_top) - 24;
 
     *(u64*)stack_thread_func_start  = (u64)thread_start;
     *(u64*)stack_param_loc          = (u64)thread_param;
-    *(u64*)stack_thread_trampoline  = (u64)thread_trampoline;
 
     /* 
         Need very precise control here as the compiler may insert instructions between
         syscall and ret.
 
         The new thread will return 0 from the clone syscall, and by doing ret, 
-        the new thread will jump to the trampoline.
+        the new thread will jump to its code after popping the parameter from its stack.
     */
 
 #ifdef __amd64
@@ -205,14 +186,32 @@ u64 create_thread(thread_start_t thread_start, void* thread_param)
         "syscall\n"
         "orl    %%eax, %%eax\n"
         "jnz    __1f\n"
+        "popq   %%rdi\n"
         "ret\n"
         "__1f:\n"
         : "=a"(err_code)
-        : "0"(SYS_clone), "D"(flags), "S"(stack_thread_trampoline)
+        : "0"(SYS_clone), "D"(flags), "S"(stack_param_loc)
         : "memory", "cc", "r11", "rcx" /* Clobbered by the syscall */
     );
 #elif defined(__aarch64__)
+    {
+        register u64 _id asm("x8") = SYS_clone;
+        register u64 _x0 asm("x0") = (u64)flags;
+        register u64 _x1 asm("x1") = (u64)stack_param_loc;
+        asm(
+            "svc    0\n"
+            "cmp	x0, #0\n"
+            "b.ne	__1f\n"
+            "ldp    x0, x1, [sp]\n"
+            "ret    x1\n"
+            "__1f:\n"
+            : "=r"(_id)
+            : "r"(_id), "r"(_x0), "r"(_x1)
+            : "memory", "cc" /* Clobbered by the syscall */
+        );
 
+        err_code = _id;
+    }
 #else
 #   error "Unsupported architecture"
 #endif
@@ -230,9 +229,9 @@ void fatal(char*msg, u64 err_code)
     println();
 
 #ifdef __amd64
-    asm volatile (".byte 0xCC");
+    asm volatile ("int $3");
 #elif defined(__aarch64__)
-
+    asm volatile ("brk #0");
 #else
 #   error "Unsupported architecture"
 #endif
