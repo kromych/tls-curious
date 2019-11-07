@@ -1,15 +1,32 @@
 #include "lib.h"
-#include "libsyscall.c"
 
-#define SYS_write       1
-#define SYS_mmap        9
-#define SYS_munmap      11
-#define SYS_clone       56
-#define SYS_exit        60
-#define SYS_wait4       61
-#define SYS_modifyldt   154
-#define SYS_getsetfsgs  158
-#define SYS_futex       202
+#ifdef __amd64
+
+#include "libsyscall.x64.c"
+
+#   define SYS_write       1
+#   define SYS_mmap        9
+#   define SYS_munmap      11
+#   define SYS_clone       56
+#   define SYS_exit        60
+#   define SYS_wait4       61
+#   define SYS_futex       202
+
+#elif defined(__aarch64__)
+
+#include "libsyscall.arm64.c"
+
+#   define SYS_write       64
+#   define SYS_mmap        222
+#   define SYS_munmap      215
+#   define SYS_clone       220
+#   define SYS_exit        93
+#   define SYS_wait4       260
+#   define SYS_futex       89
+
+#else
+#   error "Unsupported architecture"
+#endif
 
 /************************ ROUTINES ********************************/
 
@@ -48,44 +65,6 @@ i64 sys_write(u64 fd, const void *buf, u64 count)
 void sys_exit(i64 err_code)
 {
     sys_call1(SYS_exit, (u64)err_code);
-}
-
-i64 sys_set_fs(u64 value)
-{
-    return sys_call2(SYS_getsetfsgs, 0x1002, (u64)value);
-}
-
-i64 sys_set_gs(u64 value)
-{
-    return sys_call2(SYS_getsetfsgs, 0x1001, (u64)value);
-}
-
-u64 sys_get_fs()
-{
-    u64 fs = -1;
-
-    sys_call2(SYS_getsetfsgs, 0x1003, (u64)&fs);
-
-    return fs;
-}
-
-u64 sys_get_gs()
-{
-    u64 gs = -1;
-
-    sys_call2(SYS_getsetfsgs, 0x1004, (u64)&gs);
-
-    return gs;
-}
-
-i64 sys_read_ldt(ldt_entry_t* table, u64 byte_count)
-{
-    return sys_call3(SYS_modifyldt, 0, (u64)table, (u64)byte_count);
-}
-
-i64 sys_write_ldt(ldt_entry_t* table, u64 byte_count)
-{
-    return sys_call3(SYS_modifyldt, 1, (u64)table, (u64)byte_count);
 }
 
 u64 strlen(const char* str)
@@ -180,11 +159,17 @@ __attribute__((naked))
 __attribute__((noinline))
 void thread_trampoline()
 {
+#ifdef __amd64
     /* Load the argument into %rdi and jump to the thread function*/
     asm(
         "popq %rdi\n"
         "ret\n"
     );
+#elif defined(__aarch64__)
+
+#else
+#   error "Unsupported architecture"
+#endif
 }
 
 __attribute__((noinline))
@@ -211,9 +196,11 @@ u64 create_thread(thread_start_t thread_start, void* thread_param)
         Need very precise control here as the compiler may insert instructions between
         syscall and ret.
 
-        The new thread will have 0 in %eax, and by doing ret, will jump to the trampoline.
+        The new thread will return 0 from the clone syscall, and by doing ret, 
+        the new thread will jump to the trampoline.
     */
 
+#ifdef __amd64
     asm(
         "syscall\n"
         "orl    %%eax, %%eax\n"
@@ -224,6 +211,11 @@ u64 create_thread(thread_start_t thread_start, void* thread_param)
         : "0"(SYS_clone), "D"(flags), "S"(stack_thread_trampoline)
         : "memory", "cc", "r11", "rcx" /* Clobbered by the syscall */
     );
+#elif defined(__aarch64__)
+
+#else
+#   error "Unsupported architecture"
+#endif
 
     return err_code;
 }
@@ -237,95 +229,13 @@ void fatal(char*msg, u64 err_code)
     print_h64(err_code);
     println();
 
+#ifdef __amd64
     asm volatile (".byte 0xCC");
-}
+#elif defined(__aarch64__)
 
-u64 get_fs()
-{
-    u64 fs = 0;
-
-    asm volatile (
-        "movq %%fs, %%rax\n"
-        : "=a"(fs)
-        :
-        :
-        );
-
-    return fs;
-}
-
-u64 get_gs()
-{
-    u64 gs = 0;
-
-    asm volatile (
-        "movq %%gs, %%rax\n"
-        : "=a"(gs)
-        :
-        :
-        );
-
-    return gs;
-}
-
-void set_fs(u64 fs)
-{
-    asm volatile (
-        "movq %%rsi, %%fs\n"
-        : 
-        : "S"(fs)
-        :
-        );
-}
-
-void set_gs(u64 gs)
-{
-    asm volatile (
-        "movq %%rsi, %%gs\n"
-        : 
-        : "S"(gs)
-        :
-        );
-}
-
-void set_thread_local_0(i64 error)
-{
-    asm volatile (
-        "mov $0xfffffffffffffff8,%%rax\n"
-        "mov %0, %%fs:(%%rax)\n"
-        :
-        : "D"(error)
-        : "rax"
-    );
-}
-
-i64 get_thread_local_0()
-{
-    i64 ret = 0;
-
-    asm volatile (
-        "mov $0xfffffffffffffff8,%%rax\n"
-        "mov %%fs:(%%rax), %%rax\n"
-        : "=a"(ret)
-        :
-        :
-    );
-
-    return ret;
-}
-
-u64 get_ldt_selector_ring3(u64 index)
-{
-    /*
-        Segment selector (what goes into a segment register):
-            0:1     RPL (request priviledge)
-            2       Table (0 - GDT, 1 - LDT)
-            3:15    Index in the descriptor table
-    */
-
-   return (3ULL)        | /* Ring 3*/
-          (1ULL << 2)   | /* Local Descriptor Table */
-          (index << 3);
+#else
+#   error "Unsupported architecture"
+#endif
 }
 
 /*

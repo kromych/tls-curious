@@ -1,5 +1,7 @@
 #include "lib.h"
 
+#ifdef __amd64
+
 /* 
    The Linux/x86-64 kernel expects the system call parameters in
    registers according to the following table:
@@ -123,3 +125,48 @@
         ); \
     err_code; \
 })
+
+/* Intel x64 specific */
+
+#define SYS_x64_modifyldt   154
+#define SYS_x64_getsetfsgs  158
+
+u64 sys_x64_get_fs()
+{
+    u64 fs = -1;
+
+    sys_call2(SYS_x64_getsetfsgs, 0x1003, (u64)&fs);
+
+    return fs;
+}
+
+u64 sys_x64_get_gs()
+{
+    u64 gs = -1;
+
+    sys_call2(SYS_x64_getsetfsgs, 0x1004, (u64)&gs);
+
+    return gs;
+}
+
+i64 sys_x64_set_fs(u64 value)
+{
+    return sys_call2(SYS_x64_getsetfsgs, 0x1002, (u64)value);
+}
+
+i64 sys_x64_set_gs(u64 value)
+{
+    return sys_call2(SYS_x64_getsetfsgs, 0x1001, (u64)value);
+}
+
+i64 sys_x64_read_ldt(ldt_entry_t* table, u64 byte_count)
+{
+    return sys_call3(SYS_x64_modifyldt, 0, (u64)table, (u64)byte_count);
+}
+
+i64 sys_x64_write_ldt(ldt_entry_t* table, u64 byte_count)
+{
+    return sys_call3(SYS_x64_modifyldt, 1, (u64)table, (u64)byte_count);
+}
+
+#endif

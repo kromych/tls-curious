@@ -183,21 +183,6 @@ i64 sys_write_ldt(ldt_entry_t* table, u64 byte_count);
 
 void sys_exit(i64 err_code);
 
-/* 
-    Getters and setters for the FS and GS registers.
-
-    Note: these functions just return what is in the segment register,
-    i.e. the selector for the Global Descriptor Table or the Local Descriptor Table.
-    For the details of the LDT/GDT entry, the selector point to, a system call
-    is needed as the instructions for reading/writing descriptor tables are
-    priviledged.
-*/
-
-u64  get_fs();
-u64  get_gs();
-void set_fs(u64 fs);
-void set_gs(u64 gs);
-
 /*
     Create new thread
 */
