@@ -184,7 +184,10 @@ i64 sys_write_ldt(ldt_entry_t* table, u64 byte_count);
 void sys_exit(i64 err_code);
 
 /*
-    Create new thread
+    Create new thread.
+
+    The new thread receives two parameters: the pointer to the parameter, and the 
+    address of its TLS area.
 */
 typedef void (*thread_start_t)(void*);
 

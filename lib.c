@@ -181,6 +181,9 @@ u64 create_thread(thread_start_t thread_start, void* thread_param, void* tls)
 
         The new thread will return 0 from the clone syscall, and by doing ret, 
         the new thread will jump to its code after popping the parameter from its stack.
+
+        The new thread receives two parameters: the pointer to the parameter, and the 
+        address of its TLS area.
     */
 
 #ifdef __amd64
@@ -223,10 +226,10 @@ u64 create_thread(thread_start_t thread_start, void* thread_param, void* tls)
         asm(
             "svc    0\n"
             "cbnz	x0, __1f\n"
-            "ldp    x3, x2, [sp], #16\n"
-            "msr    tpidr_el0, x2\n"
-            "ldp    x0, x1, [sp], #16\n"
-            "ret    x1\n"
+            "ldp    x3, x1, [sp], #16\n"
+            "msr    tpidr_el0, x1\n"
+            "ldp    x0, x2, [sp], #16\n"
+            "ret    x2\n"
     "__1f:\n"
             : "=r"(_id)
             : "r"(_id), "r"(_x0), "r"(_x1)
