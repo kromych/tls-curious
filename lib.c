@@ -222,8 +222,7 @@ u64 create_thread(thread_start_t thread_start, void* thread_param, void* tls)
 
         asm(
             "svc    0\n"
-            "cmp	x0, #0\n"
-            "b.ne	__1f\n"
+            "cbnz	x0, __1f\n"
             "ldp    x3, x2, [sp], #16\n"
             "msr    tpidr_el0, x2\n"
             "ldp    x0, x1, [sp], #16\n"
