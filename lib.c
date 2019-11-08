@@ -156,7 +156,7 @@ void print_h64(u64 number)
 }
 
 __attribute__((noinline))
-u64 create_thread(thread_start_t thread_start, void* thread_param)
+u64 create_thread(thread_start_t thread_start, void* thread_param, void* tls)
 {
     i64 err_code = 0;
 
@@ -166,12 +166,14 @@ u64 create_thread(thread_start_t thread_start, void* thread_param)
     
     /* 0 -- no preferred address, no file to map, no offset */
     void* stack = (void*)sys_mmap(0, stack_size, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE | MAP_GROWSDOWN, 0, 0);
-    void *stack_top               = ((char*)stack) + stack_size;
+    void *stack_top               = (void*)((u64)(((char*)stack) + stack_size) & 0xfffffffffffffff0ULL);
     void *stack_thread_func_start = ((char*)stack_top) - 8;
     void *stack_param_loc         = ((char*)stack_top) - 16;
+    void *stack_tls_loc           = ((char*)stack_top) - 24;
 
     *(u64*)stack_thread_func_start  = (u64)thread_start;
     *(u64*)stack_param_loc          = (u64)thread_param;
+    *(u64*)stack_tls_loc            = (u64)tls;
 
     /* 
         Need very precise control here as the compiler may insert instructions between
@@ -182,29 +184,51 @@ u64 create_thread(thread_start_t thread_start, void* thread_param)
     */
 
 #ifdef __amd64
+    /* Need an additional syscall #158 (archpr_ctrl) for setting the FS.base MSR for TLS */
+
     asm(
         "syscall\n"
-        "orl    %%eax, %%eax\n"
-        "jnz    __1f\n"
-        "popq   %%rdi\n"
+        "orl        %%eax, %%eax\n"
+        "jnz        __1f\n"
+        "movq       $158, %%rax\n"
+        "movq       $0x1002, %%rdi\n"
+        "popq       %%rsi\n"
+        "syscall    \n"
+        "popq       %%rdi\n"
         "ret\n"
-        "__1f:\n"
+"__1f:\n"
         : "=a"(err_code)
-        : "0"(SYS_clone), "D"(flags), "S"(stack_param_loc)
+        : "0"(SYS_clone), "D"(flags), "S"(stack_tls_loc)
         : "memory", "cc", "r11", "rcx" /* Clobbered by the syscall */
     );
+
 #elif defined(__aarch64__)
     {
+        /*
+            AArch64 Thread pointer registers:
+
+            Name          | Type       | Reset      | Width      | Description
+        ===================================================================================================
+            TPIDR_EL0     | RW         | UNK        | 64         | Thread Pointer/ID Register, EL0
+            TPIDR_EL1     | RW         | UNK        | 64         | Thread Pointer/ID Register, EL1
+            TPIDRRO_EL0   | RW         | UNK        | 64         | Thread Pointer/ID Register, Read-Only, EL0
+            TPIDR_EL2     | RW         | UNK        | 64         | Thread Pointer/ID Register, EL2
+            TPIDR_EL3     | RW         | UNK        | 64         | Thread Pointer/ID Register, EL3
+        */
+
         register u64 _id asm("x8") = SYS_clone;
         register u64 _x0 asm("x0") = (u64)flags;
-        register u64 _x1 asm("x1") = (u64)stack_param_loc;
+        register u64 _x1 asm("x1") = (u64)stack_tls_loc - 8; /* ARM64 stack must be 16 byte aligned */
+
         asm(
             "svc    0\n"
             "cmp	x0, #0\n"
             "b.ne	__1f\n"
-            "ldp    x0, x1, [sp]\n"
+            "ldp    x3, x2, [sp], #16\n"
+            "msr    tpidr_el0, x2\n"
+            "ldp    x0, x1, [sp], #16\n"
             "ret    x1\n"
-            "__1f:\n"
+    "__1f:\n"
             : "=r"(_id)
             : "r"(_id), "r"(_x0), "r"(_x1)
             : "memory", "cc" /* Clobbered by the syscall */

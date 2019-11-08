@@ -16,7 +16,7 @@ static __thread u64 thread_local_2;
 
 /* Four 4KiB pages to be the TLS backing store for this thread */
 /* Spares a mmap call. */
-u64 tls_pages[2048] __attribute__((aligned(4096)));
+u64 tls_pages[2048] __attribute__((aligned(4096))) = {};
 
 /*
     Look for the values in the TLS backing store
@@ -139,7 +139,7 @@ u64 get_ldt_selector_ring3(u64 index)
           (index << 3);
 }
 
-void access_tls_x64()
+void access_tls_x64_cool()
 {
     i64 err_code = 0;
     u64 tls_start = (u64)(((char*)tls_pages) + 4096);
@@ -242,30 +242,16 @@ void access_tls_x64()
     }
 }
 
-#elif defined(__aarch64__)
+#endif
 
-/*
-    AArch64 Thread pointer registers:
-
-    Name          | Type       | Reset      | Width      | Description
-   ===================================================================================================
-    TPIDR_EL0     | RW         | UNK        | 64         | Thread Pointer/ID Register, EL0
-    TPIDR_EL1     | RW         | UNK        | 64         | Thread Pointer/ID Register, EL1
-    TPIDRRO_EL0   | RW         | UNK        | 64         | Thread Pointer/ID Register, Read-Only, EL0
-    TPIDR_EL2     | RW         | UNK        | 64         | Thread Pointer/ID Register, EL2
-    TPIDR_EL3     | RW         | UNK        | 64         | Thread Pointer/ID Register, EL3
-*/
-
-void access_tls_arm64()
+typedef struct _thread_context_t
 {
-    register u64 tls_start asm ("x0") = (u64)(((char*)tls_pages) + 4096);
+    volatile i32    exited_futex __attribute__((aligned(4)));
+    u64             thread_num;
+} thread_context_t;
 
-    asm volatile (
-        "msr tpidr_el0, x0"
-        :
-        : "r"(tls_start)
-        );
-
+void access_tls()
+{
     println();
 
     print("Setting "); println();
@@ -281,26 +267,13 @@ void access_tls_arm64()
     find_values_in_tls();
 }
 
-#endif
-
-typedef struct _thread_context_t
-{
-    volatile i32    exited_futex __attribute__((aligned(4)));
-    u64             thread_num;
-} thread_context_t;
-
-__attribute__((noinline))
 void thread_0(void* param)
 {
     thread_context_t* thread_context = (thread_context_t*)param;
 
     print("Thread # "); print_h64(thread_context->thread_num); println();
 
-#ifdef __amd64
-    access_tls_x64();
-#elif defined(__aarch64__)
-    access_tls_arm64();
-#endif
+    access_tls();
 
     print("Thread # "); print_h64(thread_context->thread_num); print(" exited "); println();
 
@@ -321,9 +294,11 @@ void _start()
         .thread_num = 1
     };
 
+    void* tls = ((char*)tls_pages) + 4096;
+
     print("Process started\n");
 
-    create_thread(thread_0, &thread_context);
+    create_thread(thread_0, &thread_context, tls);
 
     futex_acquire(&thread_context.exited_futex);
 

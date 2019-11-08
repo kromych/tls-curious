@@ -188,7 +188,7 @@ void sys_exit(i64 err_code);
 */
 typedef void (*thread_start_t)(void*);
 
-u64 create_thread(thread_start_t thread_start, void* thread_param);
+u64 create_thread(thread_start_t thread_start, void* thread_param, void* tls);
 
 /*
     Fatal exit
