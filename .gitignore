@@ -1,0 +1,4 @@
+strace.log.*
+*.o
+test-tls
+test-busy

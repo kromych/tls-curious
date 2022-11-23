@@ -189,7 +189,7 @@ void sys_exit(i64 err_code);
     The new thread receives two parameters: the pointer to the parameter, and the 
     address of its TLS area.
 */
-typedef void (*thread_start_t)(void*);
+typedef u64 (*thread_start_t)(void*);
 
 u64 create_thread(thread_start_t thread_start, void* thread_param, void* tls);
 

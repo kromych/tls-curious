@@ -267,7 +267,7 @@ void access_tls()
     find_values_in_tls();
 }
 
-void thread_0(void* param)
+u64 thread_0(void* param)
 {
     thread_context_t* thread_context = (thread_context_t*)param;
 
@@ -280,6 +280,8 @@ void thread_0(void* param)
     futex_release(&thread_context->exited_futex);
 
     sys_exit(0);
+
+    return 0;
 }
 
 /***************************** ENTRY POINT ****************************************/

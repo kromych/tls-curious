@@ -10,7 +10,7 @@ CC=gcc
 
 LD=ld
 
-TARGET=tls-test
+TARGET=test-tls
 
 ${TARGET}: ${TARGET}.o
 	${LD} -o ${LDFLAGS} ${TARGET} ${TARGET}.o 

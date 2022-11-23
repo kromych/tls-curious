@@ -1,0 +1,28 @@
+CFLAGS=-nodefaultlibs -nostdinc \
+	-ffreestanding -fno-asynchronous-unwind-tables \
+	-fno-pie -fno-PIC \
+	-ftls-model=local-exec \
+	-Wall -O3 -ggdb3
+
+LDFLAGS=
+
+CC=gcc
+
+LD=ld
+
+TARGET=test-busy
+
+${TARGET}: ${TARGET}.o
+	${LD} -o ${LDFLAGS} ${TARGET} ${TARGET}.o 
+
+${TARGET}.o: ${TARGET}.c lib*.c lib*.h
+	${CC} -c ${CFLAGS} ${TARGET}.c
+
+clean:
+	rm -f ${TARGET} ${TARGET}.o ${TARGET}.s strace.log.*
+
+run: ${TARGET}
+	./${TARGET}
+
+trace: ${TARGET}
+	strace -o strace.log -ff ./${TARGET}
